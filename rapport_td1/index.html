@@ -1,0 +1,387 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>RVRA - Pepin Teiki</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github-gist.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+<script src="toc.min.js"></script>
+
+<script type="text/javascript" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+    MathJax.Hub.Config({
+      tex2jax: {
+        inlineMath: [ ['$','$'], ["\\(","\\)"] ],
+        displayMath: [ ['$$','$$'], ["\\[","\\]"] ],
+        skipTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+      }
+    });
+    MathJax.Hub.Queue(function() {
+        var all = MathJax.Hub.getAllJax(), i;
+        for(i=0; i < all.length; i += 1) {
+            all[i].SourceElement().parentNode.className += ' has-jax';
+        }
+    });
+</script>
+
+<link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+
+<div id="toc"></div>
+
+<div id="content">
+
+<h1>RVRA - Pepin Teiki</h1>
+
+<h2>TD 1 - Stéréoscopie et profondeur de champ</h2>
+
+<h3>1. Stéréoscopie</h3>
+
+<h4>1.2. Implémentation</h4>
+
+<figure>
+	<img src="images/renderer_original.jpg" width="400" alt="renderer_original" />
+	<figcaption>Affichage via le renderer original</figcaption>
+</figure>
+
+<br/>On commence initialement par la mise à jour des matrices de vues de chaque oeil dans l'<code>anaglyphRenderer</code>. <br/>
+Pour cela, on applique une translation de la moitié de la distance entre les deux yeux sur la matrice de vue originale.
+
+<div class="highlight">
+<pre><code class="js">
+  // left eye view
+  var eyeLeft = new THREE.Matrix4();
+  eyeLeft.elements[12] = -displayParameters.ipd/2;
+
+  this.cameraLeft.matrixWorld.copy(camera.matrixWorld).multiply(eyeLeft);
+
+  // right eye view
+  var eyeRight = new THREE.Matrix4();
+  eyeRight.elements[12] = displayParameters.ipd/2;
+  
+  this.cameraRight.matrixWorld.copy(camera.matrixWorld).multiply(eyeRight);
+</code></pre></div>
+
+<br/>On cherche ensuite à mettre à jour les matrices de projection en se basant sur les formules extraites des diapos de Gordon Wetzstein. Il s'agit donc ici de calculer les valeurs de <code>top</code>, <code>bottom</code>, <code>left</code> et <code>right</code> des frustums. Il est important de noter que les valeurs de <code>near</code> et <code>far</code> sont fournies par l'objet camera.
+
+<div class="highlight">
+<pre><code class="js">
+  // perspective matrix
+    var dualPerspective = {
+      top: camera.near * displayParameters.screenSize().y / (2 * displayParameters.distanceScreenViewer()),
+      bottom: -camera.near * displayParameters.screenSize().y / (2 * displayParameters.distanceScreenViewer()),
+      znear: camera.near,
+      zfar: camera.far
+    };
+    
+    // left eye projection  
+    var leftPerspective = {
+      left: -camera.near * (displayParameters.screenSize().x - displayParameters.ipd) / (2 * displayParameters.distanceScreenViewer()),
+      right: camera.near * (displayParameters.screenSize().x + displayParameters.ipd) / (2 * displayParameters.distanceScreenViewer())
+    };
+    
+    var projLeft = new THREE.Matrix4();
+    projLeft.makePerspective( leftPerspective.left,
+                              leftPerspective.right,
+                              dualPerspective.top,
+                              dualPerspective.bottom,
+                              dualPerspective.znear,                              
+                              dualPerspective.zfar);
+                              
+    this.cameraLeft.projectionMatrix.copy(projLeft);
+</code></pre></div>
+
+<br/>Cela nous permet de faire un rendu distinct pour chaque oeil en fonction du décalage de la caméra.
+
+<figure>
+	<img src="images/renderer_anaglyph_superpose.jpg" width="400" alt="renderer_anaglyph_superpose" />
+	<figcaption>Affichage du rendu des deux cameras superposées</figcaption>
+</figure>
+
+
+<h4>1.3. Anaglyphe</h4>
+
+Afin d'implémenter correctement l'anaglyphe, on dessine chaque camera sur des canaux de couleurs distincts via la fonction <code>colorMask</code>.
+
+<div class="highlight">
+<pre><code class="js">
+  // left eye
+    gl.colorMask(true, false, false, true);
+    renderer.render(scene, this.cameraLeft);
+
+    // depth
+    renderer.clearDepth();
+    
+    // right eye
+    gl.colorMask(false, true, true, true);
+    renderer.render(scene, this.cameraRight);
+</code></pre></div>
+
+<figure>
+	<img src="images/renderer_anaglyph.jpg" width="400" alt="renderer_anaglyph" />
+	<figcaption>Affichage du rendu des deux cameras superposées avec séparation des couleurs</figcaption>
+</figure>
+
+
+<h3>2. Profondeur de champs</h3>
+
+Afin d'obtenir les paramètres physiques de l'écran, on configure et complète le fichier <code>displayParameters.js</code> :
+
+<div class="highlight">
+<pre><code class="js">
+  // physical screen diagonal -- in mm
+  screenDiagonal: 130, //812.69,
+  screenResolutionWidth: 1920, //2560,
+  aspectRatio: 1920.0/1080.0, //16.0 / 9.0,
+</code></pre></div>
+
+<br/>Cela nous permet de calculer la taille physique d'un pixel par rapport à l'écran donné. La hauteur de la résolution étant obtenue à partir de l'aspect ratio et de la largeur déjà fournie. La diagonale étant calculée via le théorème de Pythagore, le rapport physique sur résolution de la diagonale est ainsi obtenu.
+
+<div class="highlight">
+<pre><code class="js">
+  pixelPitch: function() {
+    var screenResolutionHeight = this.screenResolutionWidth / this.aspectRatio;
+    var screenResolutionDiagonal = Math.sqrt(this.screenResolutionWidth * this.screenResolutionWidth + screenResolutionHeight * screenResolutionHeight);
+    var ratio = this.screenDiagonal / screenResolutionDiagonal;
+    
+    return ratio;
+  }
+</code></pre></div>
+
+<br/>On peut alors déterminer les dimensions physiques de l'écran à partir des données précédentes : 
+
+<div class="highlight">
+<pre><code class="js">
+  screenSize: function() {
+    var screenWidth = this.screenResolutionWidth * this.pixelPitch();
+    var screenHeight = this.screenResolutionWidth / this.aspectRatio * this.pixelPitch();
+    
+    return new THREE.Vector2(screenWidth, screenHeight);
+  }
+</code></pre></div>
+
+<h4>2.1. Cercle de confusion</h4>
+
+Non implémenté par manque de compréhension des formules concernant le "retinal blur" des diapos de Gordon Wetzstein.
+
+<h4>2.2. Rendu avec profondeur de champ</h4>
+
+Non implémenté.
+
+<h2>TD 2 - Visiocasque "en carton"</h2>
+
+<h3>1. Rendu stéréo pour le visiocasque</h3>
+
+On intègre d'abord les paramètres précédemment fournis au fichier <code>displayParameters.js</code>.
+
+<div class="highlight">
+<pre><code class="js">
+  // focal lens distance -- in mm
+  fld: 45,
+  
+  // lens diameter -- in mm
+  lensDiameter: 25,
+  
+  // inter pupilar distance -- in mm
+  ipd: 60,
+  
+  // screen to lens distance -- in mm
+  sld: 42,
+  
+  // eye relief - in mm
+  relief: 10,
+</code></pre></div>
+
+<br/>Ensuite, en se référant toujours aux diapos, on détermine le facteur de magnification des lentilles comme étant : $\frac{f}{f - d'}$, et la distance entre l'écran et l'observateur comme étant : $\frac{1}{\frac{1}{f} - \frac{1}{d'}})$. On note l'utilisation de la valeur absolue pour <code>distanceScreenViewer</code> pour éviter d'obtenir une caméra qui se situe de l'autre côté de la scène.
+
+<div class="highlight">
+<pre><code class="js">
+  lensMagnification: function() {
+    return this.fld / (this.fld - this.sld);
+  },
+  
+  distanceScreenViewer: function() {
+    return Math.abs(1 / (1 / this.fld - 1 / this.sld));
+  },
+</code></pre></div>
+
+<br/>De la même manière que dans le TD1, on met à jour les matrices de vue et de projection de chaque oeil, avec des formules différentes pour déterminer les variables <code>top</code>, <code>bottom</code>, <code>left</code> et <code>right</code>.
+
+<div class="highlight">
+<pre><code class="js">
+  // perspective matrix
+    var dualPerspective = {
+      top: camera.near * displayParameters.screenSize().y * displayParameters.lensMagnification() / (2 * (displayParameters.distanceScreenViewer() + displayParameters.relief)),
+      bottom: -camera.near * displayParameters.screenSize().y * displayParameters.lensMagnification() / (2 * (displayParameters.distanceScreenViewer() + displayParameters.relief)),
+      znear: camera.near,
+      zfar: camera.far
+    };
+    
+    var w1 = displayParameters.lensMagnification() * displayParameters.ipd / 2;
+    var w2 = displayParameters.lensMagnification() * ((displayParameters.screenSize().x - displayParameters.ipd) / 2);
+
+    // left eye projection  
+    var leftPerspective = {
+      left: -camera.near * w2 / (displayParameters.distanceScreenViewer() + displayParameters.relief),
+      right: camera.near * w1 / (displayParameters.distanceScreenViewer() + displayParameters.relief),
+    };
+</code></pre></div>
+
+<br/>On sépare ensuite les affichages lors du rendu :
+<div class="highlight">
+<pre><code class="js">
+    // Left eye
+    renderer.setViewport(0, 0, window.innerWidth/2, window.innerHeight);
+    renderer.clearTarget( this.renderTargetLeft, true, true, false);
+    renderer.render( scene, this.cameraLeft, this.renderTargetLeft);
+    
+    (...)
+    
+    // Right eye
+    renderer.setViewport(window.innerWidth/2, 0, window.innerWidth/2, window.innerHeight);
+    renderer.clearTarget( this.renderTargetRight, true, true, false);
+    renderer.render( scene, this.cameraRight, this.renderTargetRight);
+    
+    (...)
+</code></pre></div>
+
+<figure>
+	<img src="images/renderer_stereo.jpg" width="400" alt="renderer_stereo" />
+	<figcaption>Affichage du rendu stereoscopique</figcaption>
+</figure>
+
+<h3>2. Correction des distorsions</h3>
+
+On implémente dans <code>shaderUnwarp.frag</code> la partie initiale des formules de Brown-Conrady fournies sur Wikipedia :
+$$r = \sqrt{(x_d - x_c)^2 + (y_d - y_c)^2}$$
+$$x_u = x_d + (x_d - x_c)(K_1 r^2 + K_2 r^4)$$
+$$y_u = y_d + (y_d - y_c)(K_1 r^2 + K_2 r^4)$$
+
+<div class="highlight">
+<pre><code class="cpp">
+  // we find rr (r^2) that will be used in the following steps
+  float rr = square(vUv.x - centerCoordinate.x) + square(vUv.y - centerCoordinate.y);
+  
+  // we find the corrected image points
+  float xu = vUv.x + (vUv.x - centerCoordinate.x) * (K.x * rr + K.y * square(rr));
+  float yu = vUv.y + (vUv.y - centerCoordinate.y) * (K.x * rr + K.y * square(rr));
+</code></pre></div>
+
+<br/>On prend soin de vérifier la position des coordonnées obtenues, afin de renvoyer du noir si nécessire :
+
+<div class="highlight">
+<pre><code class="cpp">
+  if (xu < 0.0 || xu > 1.0 || yu < 0.0 || yu > 1.0)
+    gl_FragColor = vec4(0, 0, 0, 1.0);
+    
+  else
+    gl_FragColor = texture2D(colorMap, vec2(xu, yu));
+</code></pre></div>
+
+<br/>Enfin, on intègre <code>dat.gui</code> à notre projet directement au sein du fichier <code>stereoRenderer</code> pour modifier les coefficients $K_1$ et $K_2$ à la volée :
+
+
+<div class="highlight">
+<pre><code class="js">
+  // dat.gui controls
+  var KController = function() {
+    this.K1 = 0.5;
+    this.K2 = 0.5;
+  };
+  
+  // dat.gui object
+  var guiObj = new dat.GUI();
+  var kCon = new KController();
+  var K1 = guiObj.add(kCon, 'K1', 0, 1);
+  var K2 = guiObj.add(kCon, 'K2', 0, 1);
+  guiObj.K1 = .5;
+  guiObj.K2 = .5;
+  
+  // dat.gui sliders update
+  K1.onChange(function(K1){
+    guiObj.K1 = K1;
+    uniforms["K"] = { value: new THREE.Vector2(guiObj.K1, guiObj.K2) };
+  });
+
+  K2.onChange(function(K2){
+    guiObj.K2 = K2;
+    uniforms["K"] = { value: new THREE.Vector2(guiObj.K1, guiObj.K2) };
+  });  
+</code></pre></div>
+
+<figure>
+	<img src="images/renderer_stereo_correction.jpg" width="400" alt="renderer_stereo_correction" />
+	<figcaption>Affichage du rendu stereoscopique avec correction des distorsions</figcaption>
+</figure>
+
+<h3>3. Suivi de l'orientation de l'observateur</h3>
+
+On télécharge la librairie <code>THREE.DeviceOrientationControls</code> afin de l'ajouter à notre projet. On ajoute simplement la construction du controleur ayant pour objet notre camera originale dans la fonction <code>init()</code> :
+
+<div class="highlight">
+<pre><code class="js">
+    controls = new THREE.DeviceOrientationControls(camera);  
+</code></pre></div>
+
+<br/>Il suffit alors d'appeler sa fonction update qui va mettre à jour les données d'orientation de l'appareil avant chaque appel au renderer stéréoscopique :
+
+<div class="highlight">
+<pre><code class="js">
+function render() {
+  renderer.clear();
+  
+  controls.update();
+  
+  stereoRenderer.render(scene, camera);
+
+  (...)
+}
+</code></pre></div>
+
+<br/>On ajoute dans <code>utils.js</code> une fonction nous permettant de détecter si la page est ouverte sur un navigateur pour mobile ou pour bureau. On utilise alors cet ajout pour afficher la page avec gestion de l'orientation aux smartphones et la page sans cette gestion aux autres utilisateurs afin que le rendu soit adapté.
+
+<div class="highlight">
+<pre><code class="js">
+function render() {
+  renderer.clear();
+  
+  if (isMobile)
+    controls.update();
+  
+  stereoRenderer.render(scene, camera);
+
+  (...)
+}
+</code></pre></div>
+
+<br/>On peut désormais effectuer une rotation de la camera dans notre scène lorsque celle-ci est visionnée sur smartphone. Il n'est cependant pas possible, dans l'implémentation actuelle, d'effectuer une translation de la position de la caméra et d'observer la scène sous un autre angle. Le reste de la scène que nous pouvons voir étant un fond noir.
+
+
+<script type="text/javascript">
+	$('#toc').toc({
+	    'selectors': 'h2,h3,h4', //elements to use as headings
+	    'container': 'body', //element to find all selectors in
+	    'smoothScrolling': true, //enable or disable smooth scrolling on click
+	    'prefix': 'toc', //prefix for anchor tags and class names
+	    'onHighlight': function(el) {}, //called when a new section is highlighted 
+	    'highlightOnScroll': true, //add class to heading that is currently in focus
+	    'highlightOffset': 100, //offset to trigger the next headline
+	    'anchorName': function(i, heading, prefix) { //custom function for anchor name
+	        return prefix+i;
+	    },
+	    'headerText': function(i, heading, $heading) { //custom function building the header-item text
+	        return $heading.text();
+	    },
+	'itemClass': function(i, heading, $heading, prefix) { // custom function for item class
+	  return $heading[0].tagName.toLowerCase();
+	}
+	});
+</script>
+
+</body>

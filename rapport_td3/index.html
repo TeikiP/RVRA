@@ -1,0 +1,300 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>RVRA - Pepin Teiki</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github-gist.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+<script src="toc.min.js"></script>
+
+<script type="text/javascript" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+    MathJax.Hub.Config({
+      tex2jax: {
+        inlineMath: [ ['$','$'], ["\\(","\\)"] ],
+        displayMath: [ ['$$','$$'], ["\\[","\\]"] ],
+        skipTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+      }
+    });
+    MathJax.Hub.Queue(function() {
+        var all = MathJax.Hub.getAllJax(), i;
+        for(i=0; i < all.length; i += 1) {
+            all[i].SourceElement().parentNode.className += ' has-jax';
+        }
+    });
+</script>
+
+<link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+
+<div id="toc"></div>
+
+<div id="content">
+
+<h1>RVRA - Pepin Teiki</h1>
+
+<h2>TD 3 - Suivi d'un marqueur coloré</h2>
+
+<h3>1. Color tracking</h3>
+
+<h4>1.1. Affichage de base</h4>
+
+<p>Dans le code de <code>render.js</code> fourni, on remarque que un canvas est initiallement créé dans la fonction <code>init()</code>.</br>
+Ce canvas va être utilisé par la fonction <code>animate()</code> à chaque frame à fin d'y mettre notre flux video.
+Celui-ci est généré au sein du fichier <code>load.js</code>.</br>
+On recupère l'<code>imageData</code> de chaque image du flux, ce qui nous servira pour faire nos traitements d'images par la suite.</p>
+
+
+<div class="highlight">
+<pre><code class="js">
+context.drawImage(video, 0, 0, canvas.width, canvas.height);
+imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+</code></pre></div>
+
+
+<figure>
+	<img src="images/cap1.png" width="800" alt="cap1" />
+	<figcaption>Affichage de base avec deuxième affichage en grayscale</figcaption>
+</figure>
+
+<h4>1.2. Menu et sélection de couleur</h4>
+
+<p>On complète le menu de dat.GUI on y rajoutant une option de sélection de couleur.</p>
+
+<div class="highlight">
+<pre><code class="js">
+var color = gui.addColor(menu,'color').listen();
+gui.color = [0, 128, 255];
+
+color.onChange(function(value){
+	gui.color = value;
+}); 
+</code></pre></div>
+
+
+<p>On rajoute une detection de click au canvas correspondant à notre flux vidéo. </br>
+Cette fonction récupère les coordonnées du click effectué, puis les intensités RGB du pixel à ces coordonnées avant de les appliquer à notre fonctionnalité précédèment implémentée.<p>
+
+<div class="highlight">
+<pre><code class="js">
+canvas.addEventListener("click",function(event){
+	var eventLocation = getEventLocation(this,event);
+
+	var pixelData = context.getImageData(eventLocation.x, eventLocation.y, 1, 1).data;
+
+	gui.color = [pixelData[0], pixelData[1], pixelData[2]];
+},false);
+</code></pre></div>
+
+<p>Pour déterminer la location du click de la souris dans le navigateur sans jQuery, on implémente les fonctions présentées à <a href="https://ourcodeworld.com/articles/read/185/how-to-get-the-pixel-color-from-a-canvas-on-click-or-mouse-event-with-javascript">cette adresse</a>.</p>
+
+
+<figure>
+	<img src="images/cap2.png" width="400" alt="cap2" />
+	<figcaption>Affichage du menu de dat.GUI</figcaption>
+</figure>
+
+<h4>1.3. Ajout de la tolérance</h4>
+
+<p>On rajoute au menu dat.GUI une option pour définir la tolérance à utiliser pour la suite.</p>
+
+<div class="highlight">
+<pre><code class="js">
+var tolerance = gui.add(menu, 'tolerance', 0, 255);
+gui.tolerance = 15;
+
+tolerance.onChange(function(value){
+	gui.tolerance = value;
+});
+</code></pre></div>
+
+<h4>1.4. Seuillage</h4>
+
+<p>On peut désormais effectuer notre seuillage avec nos paramètres dynamiques.<br/>
+Dès lors que on active le mode de seuillage dans notre menu, on appel alors notre nouvelle fonction qui génère pour chaque frame une <code>CV.Image</code> en binaire.<br/>
+Pour cela, on compare d'abord nos valeurs RGB de l'image à notre valeur de référence ± la tolérance.<br/>
+Si, pour un pixel donné, ses trois canaux de couleurs sont dans l'ensemble de valeurs acceptées par notre seuillage, on le met en blanc, sinon en noir.<br/>
+Pour la suite de ce TD, notre image binaire renvoyée ne contient que un seul canal, c'est-à-dire ses niveaux de gris, au lieu de trois canaux RGB.
+</p>
+
+<div class="highlight">
+<pre><code class="js">
+function threshold(imageInput, imageOutput, thresholdColor, tolerance){
+	var src = imageInput.data;
+	var dst = imageOutput.data;
+	var singleCanal = new CV.Image(canvas.width, canvas.height);
+	var dstSingleCanal = singleCanal.data;
+	var len = src.length;
+	var tabR = [];
+	var tabG = [];
+	var tabB = [];
+	var i;
+
+	for (i = 0; i < 256; ++ i) {
+		tabR[i] = (i <= thresholdColor[0] - tolerance || i >= thresholdColor[0] + tolerance) ? 0: 255;
+		tabG[i] = (i <= thresholdColor[1] - tolerance || i >= thresholdColor[1] + tolerance) ? 0: 255;
+		tabB[i] = (i <= thresholdColor[2] - tolerance || i >= thresholdColor[2] + tolerance) ? 0: 255;
+	}
+
+
+	for (i = 0; i < len; i += 4){
+		if (tabR[src[i]] == 255 && tabG[src[i+1]] == 255 && tabB[src[i+2]] == 255) {
+			dst[i] = 255;
+			dst[i+1] = 255;
+			dst[i+2] = 255;
+			dst[i+3] = src[i+3];
+			dstSingleCanal[i / 4] = 255;
+		}
+
+		else {
+			dst[i] = 0;
+			dst[i+1] = 0;
+			dst[i+2] = 0;
+			dst[i+3] = src[i+3];
+			dstSingleCanal[i / 4] = 0;
+		}
+	}
+
+	imageOutput.width = imageInput.width;
+	imageOutput.height = imageInput.height;
+
+	return singleCanal;
+};
+</code></pre></div>
+
+
+<h4>1.5. Détection des contours</h4>
+
+<p>La fonction <code>findContours</code> d'OpenCV prend en paramètres une CV.Image à un canal sur laquelle effectuer la recherche de contour et une CV.Image vide.<br/>
+Cela nous renvois un tableau des contours présents dans l'image, chaque contour étant lui-même composé d'un tableau de pixels composant le contour en question.<br/>
+Ce sont, dans ce tableau, les coordonnées en X et en Y qui sont conservées et non les intensités des pixels.<br/>
+</p>
+
+<div class="highlight">
+<pre><code class="js">
+var contours = CV.findContours(binary, tmp);
+</code></pre></div>
+
+<p>On détermine alors le plus grand contour parmis ceux trouvés.<br/>
+Pour cela, on fait appel à la fonction <code>CV.perimeter</code> qui nous renvoie la valeur du périmètre pour un contour donné.</p>
+
+<div class="highlight">
+<pre><code class="js">
+var contoursAreas = [];
+for (var i = 0; i < contours.length; i++) {
+	contoursAreas[i] = CV.perimeter(contours[i]);
+}
+</code></pre></div>
+
+<p>On fait désormais une recherche de maximum sur les périmètres obtenus afin de ne conserver que le plus grand contour pour la suite du TP. </p>
+
+<div class="highlight">
+<pre><code class="js">
+if (contoursAreas.length != 0) {
+	var maxValue = contoursAreas[0];
+	var maxIndex = 0;
+
+	for (var i = 1; i < contoursAreas.length; i++) {
+		if (contoursAreas[i] > maxValue) {
+			maxIndex = i;
+			maxValue = contoursAreas[i];
+		}
+	}
+	
+}
+</code></pre></div>
+
+<h4>1.6. Affichage du cercle englobant</h4>
+
+<p>La méthode employée pour tracer le cercle sur notre canvas est très simple via la fonction <code>arc()</code>. <br/>
+Cependant, pour que le cercle englobe notre polygone, il faut que l'on détermine son centre et son rayon.</p>
+
+<div class="highlight">
+<pre><code class="js">
+context.beginPath();
+context.strokeStyle="#FF0000";
+context.arc(x_cen, y_cen, radius, 0, 2 * Math.PI);
+context.stroke();
+</code></pre></div>
+
+<p>On détermine les coordonnées du centre de notre cercle en recherchant d'abord les valeurs minimum et maximum pour les coordonnées en x et en y des pixels qui forment notre plus grand contour.<br/>
+Notre centre a alors pour coordonnées :
+$$X = \frac{Xmax - Xmin}{2} + Xmin$$
+$$Y = \frac{Ymax - Ymin}{2} + Ymin$$
+
+Le rayon de notre cercle correspond au maximum de la moitié des distances entre les deux points d'un même axe :
+$$radius = max(\frac{Xmax - Xmin}{2}, \frac{Ymax - Ymin}{2})$$
+</p>
+
+<div class="highlight">
+<pre><code class="js">
+var x_max = contours[maxIndex][0].x;
+var x_min = contours[maxIndex][0].x;
+var y_max = contours[maxIndex][0].y;
+var y_min = contours[maxIndex][0].y;
+
+for (var i = 1; i < contours[maxIndex].length; i++) {
+	if (contours[maxIndex][i].x > x_max)
+		x_max = contours[maxIndex][i].x;
+
+	else if(contours[maxIndex][i].x < x_min)
+		x_min = contours[maxIndex][i].x;
+
+	if (contours[maxIndex][i].y > y_max)
+		y_max = contours[maxIndex][i].y;
+
+	else if(contours[maxIndex][i].y < y_min)
+		y_min = contours[maxIndex][i].y;
+}
+
+var x_cen = (x_max - x_min) / 2 + x_min;
+var y_cen = (y_max - y_min) / 2 + y_min;
+
+var radius;
+
+if ((y_max-y_min)>(x_max-x_min))
+	radius = (y_max-y_min)/2;
+else
+	radius = (x_max-x_min)/2;
+</code></pre></div>
+
+
+<figure>
+	<img src="images/cap3.png" width="800" alt="cap3" />
+	<figcaption>Affichage du cercle englobant</figcaption>
+</figure>
+
+
+
+<h3>2. Stéréo et tracking</h3>
+
+<p>A completer...</p>
+
+<script type="text/javascript">
+	$('#toc').toc({
+	    'selectors': 'h2,h3,h4', //elements to use as headings
+	    'container': 'body', //element to find all selectors in
+	    'smoothScrolling': true, //enable or disable smooth scrolling on click
+	    'prefix': 'toc', //prefix for anchor tags and class names
+	    'onHighlight': function(el) {}, //called when a new section is highlighted 
+	    'highlightOnScroll': true, //add class to heading that is currently in focus
+	    'highlightOffset': 100, //offset to trigger the next headline
+	    'anchorName': function(i, heading, prefix) { //custom function for anchor name
+	        return prefix+i;
+	    },
+	    'headerText': function(i, heading, $heading) { //custom function building the header-item text
+	        return $heading.text();
+	    },
+	'itemClass': function(i, heading, $heading, prefix) { // custom function for item class
+	  return $heading[0].tagName.toLowerCase();
+	}
+	});
+</script>
+
+</body>
